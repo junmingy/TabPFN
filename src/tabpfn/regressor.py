@@ -671,6 +671,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         mean, std = np.mean(y), np.std(y)
         self.y_train_std_ = std.item() + 1e-20
         self.y_train_mean_ = mean.item()
+        ## Junming: FIXED
         y = (y - self.y_train_mean_) / self.y_train_std_
         self.normalized_bardist_ = FullSupportBarDistribution(
             self.bardist_.borders * self.y_train_std_ + self.y_train_mean_,
@@ -789,6 +790,7 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
         if hasattr(self, "is_constant_target_") and self.is_constant_target_:
             return self._handle_constant_target(X.shape[0], output_type, quantiles)
 
+        # Junming: check these two functions more closely (it changed X)
         X = _fix_dtypes(X, cat_indices=self.inferred_categorical_indices_)
         X = _process_text_na_dataframe(X, ord_encoder=self.preprocessor_)  # type: ignore
 
@@ -929,6 +931,10 @@ class TabPFNRegressor(RegressorMixin, BaseEstimator):
             X,
             device=self.device_,
             autocast=self.use_autocast_,
+            # Junming: hack here
+            # autocast=self.use_autocast_, n_estimators=self.n_estimators
+            y_train_mean = self.y_train_mean_,
+            y_train_std = self.y_train_std_,
         ):
             if self.softmax_temperature != 1:
                 output = output.float() / self.softmax_temperature  # noqa: PLW2901

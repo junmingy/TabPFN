@@ -583,6 +583,7 @@ class PerFeatureTransformer(Architecture):
 
         if only_return_standard_out:
             assert self.decoder_dict is not None
+            # Junming: check this closely
             output_decoded = self.decoder_dict["standard"](test_encoder_out)
         else:
             output_decoded = (

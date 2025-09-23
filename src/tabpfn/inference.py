@@ -451,10 +451,17 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
         device: torch.device,
         autocast: bool,
         only_return_standard_out: bool = True,
+        # # Junming: hack here
+        # n_estimators: int 
+        y_train_mean: float,
+        y_train_std: float,
     ) -> Iterator[tuple[torch.Tensor | dict, EnsembleConfig]]:
         self.model = self.model.to(device)
         if self.force_inference_dtype is not None:
             self.model = self.model.type(self.force_inference_dtype)
+
+        # Junming: hack here to call mitra predictor
+        mitra_predictions_list = []
         for preprocessor, X_train, y_train, config, cat_ix in zip(
             self.preprocessors,
             self.X_trains,
@@ -469,47 +476,68 @@ class InferenceEngineCachePreprocessing(InferenceEngine):
             if not isinstance(X_test, torch.Tensor):
                 X_test = torch.as_tensor(X_test, dtype=torch.float32)
             X_test = X_test.to(device)
-            X_full = torch.cat([X_train, X_test], dim=0).unsqueeze(1)
-            if not isinstance(y_train, torch.Tensor):
-                y_train = torch.as_tensor(y_train, dtype=torch.float32)  # noqa: PLW2901
-            y_train = y_train.to(device)  # noqa: PLW2901
+            
+            # # Junming: hack here to call AG mitra predictor (not correct because extra AG processing)
+            # from tabpfn.mitra_with_AG import _predict_with_mitra
+            # from tabpfn.exceptions import MitraPredictionReturn
+            # mitra_predictions = _predict_with_mitra(X_train, y_train, X_test, n_estimators=n_estimators)
+            # raise MitraPredictionReturn(mitra_predictions)
 
-            batched_cat_ix = [cat_ix]
+            # Junming: hack here to call mitra predictor
+            from tabpfn.mitra_with_TabPFN_logic import _predict_with_mitra
+            from tabpfn.exceptions import MitraPredictionReturn
+            # print("y_train:", y_train)
+            mitra_predictions = _predict_with_mitra(X_train, y_train, X_test, n_estimators=1)
+            if config.target_transform is not None:
+                mitra_predictions = config.target_transform.inverse_transform(mitra_predictions.reshape(-1, 1)).squeeze()  # type: ignore
+            mitra_predictions = mitra_predictions * y_train_std + y_train_mean
+            mitra_predictions_list.append(mitra_predictions)
 
-            # Handle type casting
-            with contextlib.suppress(Exception):  # Avoid overflow error
-                X_full = X_full.float()
-            if self.force_inference_dtype is not None:
-                X_full = X_full.type(self.force_inference_dtype)
-                y_train = y_train.type(self.force_inference_dtype)  # type: ignore # noqa: PLW2901
+        mitra_predictions_mean = np.mean(np.stack(mitra_predictions_list, axis=0), axis=0)
+        raise MitraPredictionReturn(mitra_predictions_mean)    
 
-            if self.inference_mode:
-                MemoryUsageEstimator.reset_peak_memory_if_required(
-                    save_peak_mem=self.save_peak_mem,
-                    model=self.model,
-                    X=X_full,
-                    cache_kv=False,
-                    device=device,
-                    dtype_byte_size=self.dtype_byte_size,
-                    safety_factor=1.2,  # TODO(Arjun): make customizable
-                )
-            else:
-                pass
+            # # ###################################
+            # X_full = torch.cat([X_train, X_test], dim=0).unsqueeze(1)
+            # if not isinstance(y_train, torch.Tensor):
+            #     y_train = torch.as_tensor(y_train, dtype=torch.float32)  # noqa: PLW2901
+            # y_train = y_train.to(device)  # noqa: PLW2901
 
-            with (
-                get_autocast_context(device, enabled=autocast),
-                torch.inference_mode(self.inference_mode),
-            ):
-                output = self.model(
-                    X_full,
-                    y_train,
-                    only_return_standard_out=only_return_standard_out,
-                    categorical_inds=batched_cat_ix,
-                )
+            # batched_cat_ix = [cat_ix]
 
-            output = output if isinstance(output, dict) else output.squeeze(1)
+            # # Handle type casting
+            # with contextlib.suppress(Exception):  # Avoid overflow error
+            #     X_full = X_full.float()
+            # if self.force_inference_dtype is not None:
+            #     X_full = X_full.type(self.force_inference_dtype)
+            #     y_train = y_train.type(self.force_inference_dtype)  # type: ignore # noqa: PLW2901
 
-            yield output, config
+            # if self.inference_mode:
+            #     MemoryUsageEstimator.reset_peak_memory_if_required(
+            #         save_peak_mem=self.save_peak_mem,
+            #         model=self.model,
+            #         X=X_full,
+            #         cache_kv=False,
+            #         device=device,
+            #         dtype_byte_size=self.dtype_byte_size,
+            #         safety_factor=1.2,  # TODO(Arjun): make customizable
+            #     )
+            # else:
+            #     pass
+
+            # with (
+            #     get_autocast_context(device, enabled=autocast),
+            #     torch.inference_mode(self.inference_mode),
+            # ):
+            #     output = self.model(
+            #         X_full,
+            #         y_train,
+            #         only_return_standard_out=only_return_standard_out,
+            #         categorical_inds=batched_cat_ix,
+            #     )
+
+            # output = output if isinstance(output, dict) else output.squeeze(1)
+
+            # yield output, config
         if self.inference_mode:  ## if inference
             self.model = self.model.cpu()
 

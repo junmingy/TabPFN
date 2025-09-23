@@ -1,3 +1,7 @@
+# Junming's files
+examples/mitra_regressor_model_n1/
+src/tabpfn/mitra_with_AG.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

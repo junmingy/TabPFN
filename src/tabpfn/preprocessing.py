@@ -639,6 +639,8 @@ def transform_labels_one(
             # TODO(eddiebergman): Verify this transformer is fitted back in the main
             # process context, otherwise we need some way to return it, possibly
             # by just returning the config
+            # y_train = y_train
+            # Junming: comment this out to not transform y
             y_train = config.target_transform.fit_transform(
                 y_train.reshape(-1, 1),
             ).ravel()
